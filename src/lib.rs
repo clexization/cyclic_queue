@@ -35,7 +35,7 @@ impl<T, const SIZE: usize> CyclicQueue<T, SIZE> {
     }
 
     /// The whole push operation can be assumed to happen atomic
-    /// This only sets the beginning index if it was empty previously.
+    /// and is initiated by another thread.
     pub fn push(&mut self, value: T) -> Result<(), FullQueueError> {
         let end_index: usize = self.end_index.load(Acquire);
         let begin_index: usize = self.begin_index.load(Acquire);
@@ -51,7 +51,8 @@ impl<T, const SIZE: usize> CyclicQueue<T, SIZE> {
         Ok(())
     }
 
-    /// Is running on the main application and may be interrupted at any possible point in time.
+    /// Is running on the main application thread and may be
+    /// interrupted at any possible point in time.
     pub fn pop(&mut self) -> Option<T> {
         let begin_index: usize = self.begin_index.load(Acquire);
         let end_index: usize = self.end_index.load(Acquire);

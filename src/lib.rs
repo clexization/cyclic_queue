@@ -175,8 +175,12 @@ mod tests {
     #[test]
     fn is_full_if_not_full_rolling() {
         let queue: CyclicQueue<u8, 10> = CyclicQueue::new();
-        queue.begin_index.store(CyclicQueue::<u8, 10>::ROLL_OVER - 1, Release);
-        queue.end_index.store(CyclicQueue::<u8, 10>::ROLL_OVER - 1, Release);
+        queue
+            .begin_index
+            .store(CyclicQueue::<u8, 10>::ROLL_OVER - 1, Release);
+        queue
+            .end_index
+            .store(CyclicQueue::<u8, 10>::ROLL_OVER - 1, Release);
 
         queue.push(1).unwrap();
 
@@ -193,8 +197,12 @@ mod tests {
     #[test]
     fn is_full_if_full_rolling() {
         let queue: CyclicQueue<u8, 2> = CyclicQueue::new();
-        queue.begin_index.store(CyclicQueue::<u8, 2>::ROLL_OVER - 1, Release);
-        queue.end_index.store(CyclicQueue::<u8, 2>::ROLL_OVER - 1, Release);
+        queue
+            .begin_index
+            .store(CyclicQueue::<u8, 2>::ROLL_OVER - 1, Release);
+        queue
+            .end_index
+            .store(CyclicQueue::<u8, 2>::ROLL_OVER - 1, Release);
 
         queue.push(1).unwrap();
         queue.push(2).unwrap();
@@ -221,7 +229,7 @@ mod tests {
 
     #[derive(Debug)]
     enum AsyncResult {
-        PUSH(Result<(), FullQueueError>),
+        PUSH(Result<u32, FullQueueError>),
         POP(Option<u32>),
     }
 
@@ -232,10 +240,10 @@ mod tests {
     }
 
     impl TimeStampData {
-        fn from_push(data: Result<(), FullQueueError>) -> Self {
+        fn from_push(data: u32, result: Result<(), FullQueueError>) -> Self {
             TimeStampData {
                 time: Instant::now(),
-                data: AsyncResult::PUSH(data),
+                data: AsyncResult::PUSH(result.map(|_| data)),
             }
         }
 
@@ -248,8 +256,10 @@ mod tests {
     }
 
     #[test]
-    fn async_access() {
-        let queue = Arc::new(CyclicQueue::<u32, 3>::new());
+    fn example_implementation() {
+        const TEST_SIZE: usize = 3;
+
+        let queue = Arc::new(CyclicQueue::<u32, TEST_SIZE>::new());
 
         let push_ref = queue.clone();
         let pop_ref = queue.clone();
@@ -262,7 +272,7 @@ mod tests {
             let mut result: Vec<TimeStampData> = Vec::new();
 
             push_barrier_ref.wait();
-            (0..20).for_each(|i| result.push(TimeStampData::from_push(push_ref.push(i))));
+            (0..20).for_each(|i| result.push(TimeStampData::from_push(i, push_ref.push(i))));
 
             result
         });

@@ -31,9 +31,15 @@ unsafe impl<T, const SIZE: usize> Sync for CyclicQueue<T, SIZE> {}
 unsafe impl<T, const SIZE: usize> Send for CyclicQueue<T, SIZE> {}
 
 impl<T, const SIZE: usize> CyclicQueue<T, SIZE> {
+    const ROLL_OVER: usize = usize::MAX - (usize::MAX % SIZE);
+
     /// Creates a new CyclicQueue with only empty fields
     pub const fn new() -> Self {
         assert!(SIZE > 0, "Queue size bigger than 0 expected");
+        assert!(
+            usize::MAX / SIZE > 1,
+            "The size must fit into usize at least two times."
+        );
         CyclicQueue {
             queue: UnsafeCell::new([const { None }; SIZE]),
             begin_index: AtomicUsize::new(0),
@@ -47,7 +53,7 @@ impl<T, const SIZE: usize> CyclicQueue<T, SIZE> {
         let end_index: usize = self.end_index.load(Acquire);
         let begin_index: usize = self.begin_index.load(Acquire);
 
-        if is_capacity_reached(begin_index, end_index, SIZE) {
+        if Self::is_capacity_reached(begin_index, end_index) {
             return Err(FullQueueError);
         }
 
@@ -55,7 +61,7 @@ impl<T, const SIZE: usize> CyclicQueue<T, SIZE> {
             (*self.queue.get())[end_index % SIZE] = Some(value);
         }
 
-        self.end_index.store(end_index.wrapping_add(1), Release);
+        Self::increment_rollover(end_index, &self.end_index);
 
         Ok(())
     }
@@ -76,7 +82,7 @@ impl<T, const SIZE: usize> CyclicQueue<T, SIZE> {
             data = (*self.queue.get())[begin_index % SIZE].take();
         }
 
-        self.begin_index.store(begin_index.wrapping_add(1), Release);
+        Self::increment_rollover(begin_index, &self.begin_index);
 
         data
     }
@@ -90,22 +96,26 @@ impl<T, const SIZE: usize> CyclicQueue<T, SIZE> {
     pub fn is_full(&self) -> bool {
         let begin_index: usize = self.begin_index.load(Acquire);
         let end_index: usize = self.end_index.load(Acquire);
-        is_capacity_reached(begin_index, end_index, SIZE)
+        Self::is_capacity_reached(begin_index, end_index)
     }
-}
 
-/// evaluation whether the capacity is reached or not
-#[inline]
-fn is_capacity_reached(begin_index: usize, end_index: usize, capacity: usize) -> bool {
-    if begin_index == end_index {
-        false
-    } else if begin_index < end_index {
-        // no wrapping and expected most of the time
-        end_index - begin_index >= capacity
-    } else {
-        // may happen due to wrapping increase
-        let n_until_wrap = (usize::MAX - begin_index).wrapping_add(1);
-        end_index + n_until_wrap >= capacity
+    #[inline]
+    fn increment_rollover(current_value: usize, atomic: &AtomicUsize) {
+        atomic.store((current_value.wrapping_add(1)) % Self::ROLL_OVER, Release);
+    }
+
+    /// evaluation whether the capacity is reached or not
+    #[inline]
+    fn is_capacity_reached(begin_index: usize, end_index: usize) -> bool {
+        if begin_index == end_index {
+            false
+        } else if begin_index < end_index {
+            // no wrapping and expected most of the time
+            end_index - begin_index == SIZE
+        } else {
+            let n_until_wrap = Self::ROLL_OVER - begin_index;
+            end_index + n_until_wrap == SIZE
+        }
     }
 }
 
@@ -165,8 +175,8 @@ mod tests {
     #[test]
     fn is_full_if_not_full_rolling() {
         let queue: CyclicQueue<u8, 10> = CyclicQueue::new();
-        queue.begin_index.store(usize::MAX, Release);
-        queue.end_index.store(usize::MAX, Release);
+        queue.begin_index.store(CyclicQueue::<u8, 10>::ROLL_OVER - 1, Release);
+        queue.end_index.store(CyclicQueue::<u8, 10>::ROLL_OVER - 1, Release);
 
         queue.push(1).unwrap();
 
@@ -183,8 +193,8 @@ mod tests {
     #[test]
     fn is_full_if_full_rolling() {
         let queue: CyclicQueue<u8, 2> = CyclicQueue::new();
-        queue.begin_index.store(usize::MAX, Release);
-        queue.end_index.store(usize::MAX, Release);
+        queue.begin_index.store(CyclicQueue::<u8, 2>::ROLL_OVER - 1, Release);
+        queue.end_index.store(CyclicQueue::<u8, 2>::ROLL_OVER - 1, Release);
 
         queue.push(1).unwrap();
         queue.push(2).unwrap();
@@ -196,7 +206,9 @@ mod tests {
     fn default_equal_new() {
         let queue_new: CyclicQueue<u8, 10> = CyclicQueue::new();
         let queue_default: CyclicQueue<u8, 10> = CyclicQueue::default();
-        assert_eq!(queue_new.queue.get(), queue_default.queue.get());
+        unsafe {
+            assert_eq!(*queue_new.queue.get(), *queue_default.queue.get());
+        }
         assert_eq!(
             queue_new.begin_index.load(Acquire),
             queue_default.begin_index.load(Acquire)
@@ -237,7 +249,7 @@ mod tests {
 
     #[test]
     fn async_access() {
-        let queue = Arc::new(CyclicQueue::<u32, 10>::new());
+        let queue = Arc::new(CyclicQueue::<u32, 3>::new());
 
         let push_ref = queue.clone();
         let pop_ref = queue.clone();
@@ -250,7 +262,7 @@ mod tests {
             let mut result: Vec<TimeStampData> = Vec::new();
 
             push_barrier_ref.wait();
-            (0..10).for_each(|i| result.push(TimeStampData::from_push(push_ref.push(i))));
+            (0..20).for_each(|i| result.push(TimeStampData::from_push(push_ref.push(i))));
 
             result
         });
@@ -259,7 +271,7 @@ mod tests {
             let mut result: Vec<TimeStampData> = Vec::new();
 
             pop_barrier_ref.wait();
-            (0..30).for_each(|_| result.push(TimeStampData::from_pop(pop_ref.pop())));
+            (0..40).for_each(|_| result.push(TimeStampData::from_pop(pop_ref.pop())));
 
             result
         });

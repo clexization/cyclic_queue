@@ -1,7 +1,7 @@
+use crate::FullQueueError;
 use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Acquire, Release};
-use crate::FullQueueError;
 
 /// A cyclic queue which is optimized to be thread safe, if pop and
 /// push are called from different threads at the same time without
@@ -103,15 +103,7 @@ impl<T, const SIZE: usize> UnsafeCyclicQueue<T, SIZE> {
     /// evaluation whether the capacity is reached or not
     #[inline]
     fn is_capacity_reached(begin_index: usize, end_index: usize) -> bool {
-        if begin_index == end_index {
-            false
-        } else if begin_index < end_index {
-            // no wrapping and expected most of the time
-            end_index - begin_index == SIZE
-        } else {
-            let n_until_wrap = Self::ROLL_OVER - begin_index;
-            end_index + n_until_wrap == SIZE
-        }
+        (begin_index.wrapping_add(SIZE)) % Self::ROLL_OVER == end_index
     }
 }
 

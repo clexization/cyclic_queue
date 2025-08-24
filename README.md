@@ -94,7 +94,7 @@ As it can be seen, the `start == stop` is the same condition for the `is_empty()
 `is_full()` due to the queue completing the cycle. A solution for this problem is
 required, while still being safe from concurrency.
 
-## Solution 1
+### Solution 1
 
 To solve that `is_empty() == is_full()` one needs to be adjusted. This is done through the
 changing the `is_full()` condition:
@@ -130,7 +130,7 @@ than adding any new atomic values to guarantee a concurrency issue.
 If instead of an `u8` a way bigger structure is used, then this solution may be too space
 inefficient for the use case.
 
-## Solution 2
+### Solution 2
 
 This repository implements this solution:
 

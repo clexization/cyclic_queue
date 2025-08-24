@@ -1,4 +1,4 @@
-# single consumer and single producer lockless cyclic queue
+# single producer/single consumer lockless cyclic queue
 
 ## Background
 
